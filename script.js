@@ -1,4 +1,4 @@
-// Menu Data
+// Enhanced Menu Data with ratings and nutritional info
 const menuData = [
     // Lanches
     {
@@ -8,7 +8,12 @@ const menuData = [
         price: 28.90,
         category: "lanches",
         icon: "🍔",
-        popular: true
+        popular: true,
+        rating: 4.8,
+        reviewCount: 127,
+        calories: 650,
+        protein: 35,
+        carbs: 45
     },
     {
         id: 2,
@@ -17,7 +22,12 @@ const menuData = [
         price: 32.90,
         category: "lanches",
         icon: "🥓",
-        popular: false
+        popular: false,
+        rating: 4.6,
+        reviewCount: 89,
+        calories: 820,
+        protein: 45,
+        carbs: 52
     },
     {
         id: 3,
@@ -153,29 +163,55 @@ const menuData = [
     }
 ];
 
-// Cart Management
+// Enhanced State Management
 let cart = [];
+let favorites = [];
 let currentCategory = '';
 let searchTerm = '';
+let currentSort = 'name';
+let showOnlyFavorites = false;
+let currentUser = null;
+let appliedPromo = null;
+let orderHistory = [];
+let userAddresses = [];
 
-// DOM Elements
+// Promo codes
+const promoCodes = {
+    'PRIMEIRA10': { discount: 0.10, type: 'percentage', description: '10% off no primeiro pedido' },
+    'FRETE5': { discount: 5.00, type: 'fixed', description: 'R$ 5 off na entrega' },
+    'COMBO15': { discount: 0.15, type: 'percentage', description: '15% off em combos', minItems: 2 }
+};
+
+// Enhanced DOM Elements
 const menuItemsContainer = document.getElementById('menu-items');
 const cartBtn = document.getElementById('cart-btn');
 const cartCount = document.getElementById('cart-count');
 const cartModal = new bootstrap.Modal(document.getElementById('cartModal'));
 const itemModal = new bootstrap.Modal(document.getElementById('itemModal'));
+const userModal = new bootstrap.Modal(document.getElementById('userModal'));
+const favoritesModal = new bootstrap.Modal(document.getElementById('favoritesModal'));
+const promoModal = new bootstrap.Modal(document.getElementById('promoModal'));
 const searchInput = document.getElementById('search-input');
 const categoryFilter = document.getElementById('category-filter');
+const sortFilter = document.getElementById('sort-filter');
 const categoryTabs = document.getElementById('category-tabs');
+const themeToggle = document.getElementById('theme-toggle');
+const favoritesBtn = document.getElementById('favorites-btn');
+const userBtn = document.getElementById('user-btn');
+const showFavoritesBtn = document.getElementById('show-favorites');
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', function() {
+    loadUserData();
+    loadFavoritesFromStorage();
+    loadThemeFromStorage();
     renderMenuItems();
     setupEventListeners();
     updateCartUI();
+    updateFavoritesUI();
 });
 
-// Event Listeners
+// Enhanced Event Listeners
 function setupEventListeners() {
     // Search functionality
     searchInput.addEventListener('input', handleSearch);
@@ -183,11 +219,26 @@ function setupEventListeners() {
     // Category filter
     categoryFilter.addEventListener('change', handleCategoryFilter);
     
+    // Sort filter
+    sortFilter.addEventListener('change', handleSortFilter);
+    
     // Category tabs
     categoryTabs.addEventListener('click', handleCategoryTab);
     
     // Cart button
     cartBtn.addEventListener('click', () => cartModal.show());
+    
+    // Theme toggle
+    themeToggle.addEventListener('click', toggleTheme);
+    
+    // Favorites button
+    favoritesBtn.addEventListener('click', () => favoritesModal.show());
+    
+    // User button
+    userBtn.addEventListener('click', () => userModal.show());
+    
+    // Show favorites filter
+    showFavoritesBtn.addEventListener('click', toggleFavoritesFilter);
     
     // Modal quantity controls
     document.getElementById('increase-qty').addEventListener('click', increaseQuantity);
@@ -198,6 +249,18 @@ function setupEventListeners() {
     
     // Checkout button
     document.getElementById('checkout-btn').addEventListener('click', handleCheckout);
+    
+    // Promo code functionality
+    document.getElementById('add-promo-btn').addEventListener('click', () => promoModal.show());
+    document.getElementById('apply-promo').addEventListener('click', applyPromoCode);
+    document.getElementById('remove-promo').addEventListener('click', removePromoCode);
+    
+    // User authentication
+    document.getElementById('show-register').addEventListener('click', showRegisterForm);
+    document.getElementById('show-login').addEventListener('click', showLoginForm);
+    document.getElementById('login-btn').addEventListener('click', handleLogin);
+    document.getElementById('register-btn').addEventListener('click', handleRegister);
+    document.getElementById('logout-btn').addEventListener('click', handleLogout);
     
     // Smooth scrolling for navigation links
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
@@ -256,25 +319,42 @@ function showLoadingAnimation() {
     menuItemsContainer.innerHTML = `
         <div class="col-12 text-center py-5">
             <div class="loading" style="width: 50px; height: 50px; border-width: 5px; margin: 0 auto;"></div>
-            <p class="mt-3 text-muted">Carregando delícias...</p>
         </div>
     `;
 }
 
-// Create Menu Item Card
+// Enhanced Create Menu Item Card
 function createMenuItemCard(item) {
     const col = document.createElement('div');
     col.className = 'col-lg-4 col-md-6 mb-4';
-    
+
+    const isFavorite = favorites.includes(item.id);
+    const rating = item.rating || 0;
+    const reviewCount = item.reviewCount || 0;
+
+    // Generate star rating display
+    const starsHtml = generateStarsHtml(rating);
+
     col.innerHTML = `
         <div class="menu-card" onclick="openItemModal(${item.id})">
             <div class="menu-card-image position-relative">
+                <button class="favorite-btn ${isFavorite ? 'active' : ''}" onclick="event.stopPropagation(); toggleFavorite(${item.id})" title="${isFavorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}">
+                    <i class="fas fa-heart"></i>
+                </button>
                 <span class="menu-card-category">${getCategoryName(item.category)}</span>
                 ${item.icon}
-                ${item.popular ? '<div class="position-absolute top-0 start-0 m-2"><span class="badge popular-badge"><i class="fas fa-star me-1"></i>Popular</span></div>' : ''}
+                ${item.popular ? '<div class="position-absolute top-0 start-0 m-2" style="top: 60px !important;"><span class="badge popular-badge"><i class="fas fa-star me-1"></i>Popular</span></div>' : ''}
             </div>
             <div class="menu-card-body">
                 <h5 class="menu-card-title">${item.name}</h5>
+                ${rating > 0 ? `
+                <div class="menu-card-rating">
+                    <div class="rating-display">
+                        <span class="stars">${starsHtml}</span>
+                        <span class="count">(${reviewCount})</span>
+                    </div>
+                </div>
+                ` : ''}
                 <p class="menu-card-description">${item.description}</p>
                 <div class="d-flex justify-content-between align-items-center">
                     <span class="menu-card-price">R$ ${item.price.toFixed(2).replace('.', ',')}</span>
@@ -285,19 +365,43 @@ function createMenuItemCard(item) {
             </div>
         </div>
     `;
-    
+
     return col;
 }
 
-// Filter Menu Items
+// Enhanced Filter Menu Items
 function filterMenuItems() {
-    return menuData.filter(item => {
+    let filteredItems = menuData.filter(item => {
         const matchesCategory = !currentCategory || item.category === currentCategory;
         const matchesSearch = !searchTerm || 
             item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             item.description.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesFavorites = !showOnlyFavorites || favorites.includes(item.id);
         
-        return matchesCategory && matchesSearch;
+        return matchesCategory && matchesSearch && matchesFavorites;
+    });
+    
+    // Apply sorting
+    return sortMenuItems(filteredItems);
+}
+
+// Sort Menu Items
+function sortMenuItems(items) {
+    return items.sort((a, b) => {
+        switch (currentSort) {
+            case 'name':
+                return a.name.localeCompare(b.name);
+            case 'price-low':
+                return a.price - b.price;
+            case 'price-high':
+                return b.price - a.price;
+            case 'popular':
+                return (b.popular ? 1 : 0) - (a.popular ? 1 : 0);
+            case 'rating':
+                return (b.rating || 0) - (a.rating || 0);
+            default:
+                return 0;
+        }
     });
 }
 
@@ -861,3 +965,368 @@ function adjustCartForScreenSize() {
 // Call on load and resize
 window.addEventListener('load', adjustCartForScreenSize);
 window.addEventListener('resize', debounce(adjustCartForScreenSize, 250));
+
+// ===== NEW ENHANCED FUNCTIONALITY =====
+
+// Theme Management
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    
+    document.documentElement.setAttribute('data-theme', newTheme);
+    
+    const themeIcon = document.getElementById('theme-icon');
+    themeIcon.className = newTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+    
+    localStorage.setItem('theme', newTheme);
+    
+    showToast(`Tema ${newTheme === 'dark' ? 'escuro' : 'claro'} ativado! 🎨`, 'info');
+}
+
+function loadThemeFromStorage() {
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    
+    const themeIcon = document.getElementById('theme-icon');
+    themeIcon.className = savedTheme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+}
+
+// Favorites Management
+function toggleFavorite(itemId) {
+    const index = favorites.indexOf(itemId);
+    
+    if (index > -1) {
+        favorites.splice(index, 1);
+        showToast('Item removido dos favoritos! 💔', 'info');
+    } else {
+        favorites.push(itemId);
+        showToast('Item adicionado aos favoritos! ❤️', 'success');
+    }
+    
+    saveFavoritesToStorage();
+    updateFavoritesUI();
+    renderMenuItems(); // Re-render to update heart buttons
+}
+
+function updateFavoritesUI() {
+    const favoritesCount = document.getElementById('favorites-count');
+    const count = favorites.length;
+    
+    favoritesCount.textContent = count;
+    favoritesCount.style.display = count > 0 ? 'block' : 'none';
+    
+    renderFavoritesModal();
+}
+
+function renderFavoritesModal() {
+    const favoritesItems = document.getElementById('favorites-items');
+    const emptyFavorites = document.getElementById('empty-favorites');
+    
+    if (favorites.length === 0) {
+        favoritesItems.style.display = 'none';
+        emptyFavorites.style.display = 'block';
+        return;
+    }
+    
+    favoritesItems.style.display = 'block';
+    emptyFavorites.style.display = 'none';
+    
+    const favoriteItems = menuData.filter(item => favorites.includes(item.id));
+    
+    favoritesItems.innerHTML = favoriteItems.map(item => `
+        <div class="row mb-3 p-3 border rounded">
+            <div class="col-auto">
+                <div class="favorite-item-image" style="font-size: 2rem;">
+                    ${item.icon}
+                </div>
+            </div>
+            <div class="col">
+                <h6 class="mb-1">${item.name}</h6>
+                <p class="text-muted mb-2 small">${item.description}</p>
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="text-success fw-bold">R$ ${item.price.toFixed(2).replace('.', ',')}</span>
+                    <div>
+                        <button class="btn btn-sm btn-outline-danger me-2" onclick="toggleFavorite(${item.id})">
+                            <i class="fas fa-heart-broken"></i>
+                        </button>
+                        <button class="btn btn-sm btn-primary" onclick="quickAddToCart(${item.id}); favoritesModal.hide();">
+                            <i class="fas fa-plus"></i> Adicionar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function toggleFavoritesFilter() {
+    showOnlyFavorites = !showOnlyFavorites;
+    const btn = document.getElementById('show-favorites');
+    
+    if (showOnlyFavorites) {
+        btn.classList.add('filter-active');
+        btn.innerHTML = '<i class="fas fa-heart"></i> Mostrando Favoritos';
+    } else {
+        btn.classList.remove('filter-active');
+        btn.innerHTML = '<i class="fas fa-heart"></i> Favoritos';
+    }
+    
+    renderMenuItems();
+}
+
+function saveFavoritesToStorage() {
+    localStorage.setItem('saborexpress_favorites', JSON.stringify(favorites));
+}
+
+function loadFavoritesFromStorage() {
+    try {
+        const savedFavorites = localStorage.getItem('saborexpress_favorites');
+        if (savedFavorites) {
+            favorites = JSON.parse(savedFavorites);
+        }
+    } catch (error) {
+        console.warn('Erro ao carregar favoritos:', error);
+        favorites = [];
+    }
+}
+
+// Sort Filter Handler
+function handleSortFilter(e) {
+    currentSort = e.target.value;
+    renderMenuItems();
+}
+
+// Generate Stars HTML
+function generateStarsHtml(rating) {
+    const fullStars = Math.floor(rating);
+    const hasHalfStar = rating % 1 >= 0.5;
+    let starsHtml = '';
+    
+    for (let i = 0; i < fullStars; i++) {
+        starsHtml += '<i class="fas fa-star"></i>';
+    }
+    
+    if (hasHalfStar) {
+        starsHtml += '<i class="fas fa-star-half-alt"></i>';
+    }
+    
+    const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+    for (let i = 0; i < emptyStars; i++) {
+        starsHtml += '<i class="far fa-star"></i>';
+    }
+    
+    return starsHtml;
+}
+
+// Promo Code Management
+function applyPromoCode() {
+    const promoCode = document.getElementById('promo-code').value.toUpperCase().trim();
+    const promoResult = document.getElementById('promo-result');
+    
+    if (!promoCode) {
+        promoResult.innerHTML = '<div class="alert alert-warning">Digite um código promocional</div>';
+        return;
+    }
+    
+    const promo = promoCodes[promoCode];
+    
+    if (!promo) {
+        promoResult.innerHTML = '<div class="alert alert-danger">Código promocional inválido</div>';
+        return;
+    }
+    
+    // Check minimum items for combo discount
+    if (promo.minItems && cart.length < promo.minItems) {
+        promoResult.innerHTML = `<div class="alert alert-warning">Este código requer pelo menos ${promo.minItems} itens no carrinho</div>`;
+        return;
+    }
+    
+    appliedPromo = { code: promoCode, ...promo };
+    promoResult.innerHTML = '<div class="alert alert-success">Código aplicado com sucesso!</div>';
+    
+    updateCartUI();
+    promoModal.hide();
+    
+    showToast(`Código ${promoCode} aplicado! 🎉`, 'success');
+}
+
+function removePromoCode() {
+    appliedPromo = null;
+    updateCartUI();
+    showToast('Código promocional removido', 'info');
+}
+
+// User Authentication
+function showRegisterForm() {
+    document.getElementById('login-form').style.display = 'none';
+    document.getElementById('register-form').style.display = 'block';
+    document.getElementById('user-modal-title').innerHTML = '<i class="fas fa-user-plus me-2"></i>Criar Conta';
+}
+
+function showLoginForm() {
+    document.getElementById('register-form').style.display = 'none';
+    document.getElementById('login-form').style.display = 'block';
+    document.getElementById('user-modal-title').innerHTML = '<i class="fas fa-user me-2"></i>Entrar';
+}
+
+function handleLogin() {
+    const email = document.getElementById('login-email').value;
+    const password = document.getElementById('login-password').value;
+    
+    if (!email || !password) {
+        showToast('Preencha todos os campos', 'warning');
+        return;
+    }
+    
+    // Simulate login
+    currentUser = {
+        id: 1,
+        name: 'Usuário Demo',
+        email: email,
+        phone: '(11) 99999-9999'
+    };
+    
+    saveUserData();
+    updateUserUI();
+    userModal.hide();
+    
+    showToast(`Bem-vindo, ${currentUser.name}! 👋`, 'success');
+}
+
+function handleRegister() {
+    const name = document.getElementById('register-name').value;
+    const email = document.getElementById('register-email').value;
+    const phone = document.getElementById('register-phone').value;
+    const password = document.getElementById('register-password').value;
+    
+    if (!name || !email || !phone || !password) {
+        showToast('Preencha todos os campos', 'warning');
+        return;
+    }
+    
+    // Simulate registration
+    currentUser = {
+        id: Date.now(),
+        name: name,
+        email: email,
+        phone: phone
+    };
+    
+    saveUserData();
+    updateUserUI();
+    userModal.hide();
+    
+    showToast(`Conta criada com sucesso! Bem-vindo, ${name}! 🎉`, 'success');
+}
+
+function handleLogout() {
+    currentUser = null;
+    localStorage.removeItem('saborexpress_user');
+    updateUserUI();
+    userModal.hide();
+    showToast('Logout realizado com sucesso! 👋', 'info');
+}
+
+function updateUserUI() {
+    const loginForm = document.getElementById('login-form');
+    const registerForm = document.getElementById('register-form');
+    const userProfile = document.getElementById('user-profile');
+    
+    if (currentUser) {
+        loginForm.style.display = 'none';
+        registerForm.style.display = 'none';
+        userProfile.style.display = 'block';
+        
+        document.getElementById('user-name').textContent = currentUser.name;
+        document.getElementById('user-email').textContent = currentUser.email;
+        document.getElementById('user-modal-title').innerHTML = '<i class="fas fa-user me-2"></i>Minha Conta';
+    } else {
+        userProfile.style.display = 'none';
+        loginForm.style.display = 'block';
+        registerForm.style.display = 'none';
+        document.getElementById('user-modal-title').innerHTML = '<i class="fas fa-user me-2"></i>Entrar';
+    }
+}
+
+function saveUserData() {
+    if (currentUser) {
+        localStorage.setItem('saborexpress_user', JSON.stringify(currentUser));
+    }
+}
+
+function loadUserData() {
+    try {
+        const savedUser = localStorage.getItem('saborexpress_user');
+        if (savedUser) {
+            currentUser = JSON.parse(savedUser);
+            updateUserUI();
+        }
+    } catch (error) {
+        console.warn('Erro ao carregar dados do usuário:', error);
+        currentUser = null;
+    }
+}
+
+// Add ratings to existing menu items that don't have them
+menuData.forEach(item => {
+    if (!item.rating) {
+        item.rating = parseFloat((Math.random() * 2 + 3).toFixed(1)); // Random rating between 3.0 and 5.0
+        item.reviewCount = Math.floor(Math.random() * 200) + 10; // Random review count
+        item.calories = Math.floor(Math.random() * 400) + 200; // Random calories
+        item.protein = Math.floor(Math.random() * 30) + 10; // Random protein
+        item.carbs = Math.floor(Math.random() * 50) + 20; // Random carbs
+    }
+});
+
+// Enhanced updateCartUI function
+const originalUpdateCartUI = updateCartUI;
+updateCartUI = function() {
+    const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    
+    let discount = 0;
+    if (appliedPromo) {
+        if (appliedPromo.type === 'percentage') {
+            discount = subtotal * appliedPromo.discount;
+        } else {
+            discount = appliedPromo.discount;
+        }
+    }
+    
+    const deliveryFee = subtotal > 0 ? 5.00 : 0;
+    const total = subtotal - discount + deliveryFee;
+    
+    cartCount.textContent = totalItems;
+    
+    // Update cart summary elements if they exist
+    const cartSubtotal = document.getElementById('cart-subtotal');
+    const cartTotal = document.getElementById('cart-total');
+    const deliveryFeeElement = document.getElementById('delivery-fee');
+    
+    if (cartSubtotal) cartSubtotal.textContent = `R$ ${subtotal.toFixed(2).replace('.', ',')}`;
+    if (cartTotal) cartTotal.textContent = `R$ ${total.toFixed(2).replace('.', ',')}`;
+    if (deliveryFeeElement) deliveryFeeElement.textContent = `R$ ${deliveryFee.toFixed(2).replace('.', ',')}`;
+    
+    // Show/hide discount row
+    const discountRow = document.getElementById('discount-row');
+    const cartDiscount = document.getElementById('cart-discount');
+    const appliedPromoDiv = document.getElementById('applied-promo');
+    const promoName = document.getElementById('promo-name');
+    
+    if (appliedPromo && discount > 0 && discountRow) {
+        discountRow.style.display = 'flex';
+        if (cartDiscount) cartDiscount.textContent = `-R$ ${discount.toFixed(2).replace('.', ',')}`;
+        if (appliedPromoDiv) appliedPromoDiv.style.display = 'block';
+        if (promoName) promoName.textContent = `${appliedPromo.code} - ${appliedPromo.description}`;
+    } else {
+        if (discountRow) discountRow.style.display = 'none';
+        if (appliedPromoDiv) appliedPromoDiv.style.display = 'none';
+    }
+    
+    renderCartItems();
+};
+
+// Welcome message with new features
+setTimeout(() => {
+    showToast('🎉 <strong>Sabor Express Melhorado!</strong><br>✨ Modo escuro/claro<br>❤️ Sistema de favoritos<br>⭐ Avaliações e filtros<br>🏷️ Códigos promocionais<br>👤 Sistema de usuário', 'success');
+}, 2000);
